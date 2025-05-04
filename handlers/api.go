@@ -1,4 +1,3 @@
-// filepath: /home/wst/Documents/Code/ToT/handlers/api.go
 package handlers
 
 import (

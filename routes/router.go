@@ -1,4 +1,3 @@
-// filepath: /home/wst/Documents/Code/ToT/routes/router.go
 package routes
 
 import (
