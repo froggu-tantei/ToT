@@ -27,6 +27,6 @@ func CorsMiddleware(next http.Handler) http.Handler {
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"*"},
 		ExposedHeaders: []string{"Link"},
-		MaxAge:         300, // Maximum value not ignored by any major browsers
+		MaxAge:         300,
 	}).Handler(next) // Wrap the next handler with CORS middleware
 }
