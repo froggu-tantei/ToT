@@ -11,9 +11,9 @@ import (
 	"github.com/XEDJK/ToT/db/database" // Import generated db code
 	"github.com/XEDJK/ToT/handlers"    // Import handlers
 	"github.com/XEDJK/ToT/middleware"  // Import middleware
-	"github.com/XEDJK/ToT/routes"
-	"github.com/jackc/pgx/v5/pgxpool" // Import pgx driver
-	"github.com/joho/godotenv"
+	"github.com/XEDJK/ToT/routes"      // Import routes
+	"github.com/jackc/pgx/v5/pgxpool"  // Import pgx driver
+	"github.com/joho/godotenv"         // Import godotenv for loading environment variables
 )
 
 func main() {

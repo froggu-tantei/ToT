@@ -22,7 +22,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 func CorsMiddleware(next http.Handler) http.Handler {
 	// Configure CORS
 	return cors.New(cors.Options{
-		AllowedOrigins: []string{"*"}, // TODO: Replace * with your frontend domain in production
+		AllowedOrigins: []string{"*"}, // TODO: Replace * with frontend domain later
 		// AllowedOrigins: []string{"http://localhost:3000", "https://your-frontend-domain.com"}, // Example
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"*"},
