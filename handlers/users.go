@@ -353,8 +353,6 @@ func (cfg *APIConfig) DeleteUserHandler(w http.ResponseWriter, r *http.Request) 
 	}))
 }
 
-// Add this to handlers/users.go
-
 // ListUsersHandler returns a paginated list of users
 func (cfg *APIConfig) ListUsersHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse pagination parameters
