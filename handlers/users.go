@@ -81,7 +81,7 @@ func (cfg *APIConfig) SignupHandler(w http.ResponseWriter, r *http.Request) {
 	userModel := models.DatabaseUserToUser(user)
 
 	// Return the user and token
-	RespondWithJSON(w, http.StatusCreated, models.NewSuccessResponse(map[string]interface{}{
+	RespondWithJSON(w, http.StatusCreated, models.NewSuccessResponse(map[string]any{
 		"user":  userModel,
 		"token": token,
 	}))
@@ -127,7 +127,7 @@ func (cfg *APIConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	userModel := models.DatabaseUserToUser(user)
 
 	// Return user and token
-	RespondWithJSON(w, http.StatusOK, models.NewSuccessResponse(map[string]interface{}{
+	RespondWithJSON(w, http.StatusOK, models.NewSuccessResponse(map[string]any{
 		"user":  userModel,
 		"token": token,
 	}))

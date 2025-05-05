@@ -14,7 +14,7 @@ type ErrorResponse struct {
 }
 
 // NewSuccessResponse creates a standard success response
-func NewSuccessResponse(data interface{}) SuccessResponse {
+func NewSuccessResponse(data any) SuccessResponse {
 	return SuccessResponse{
 		Success: true,
 		Data:    data,
