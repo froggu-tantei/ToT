@@ -20,7 +20,10 @@ func main() {
 
 	const filepathRoot = "."
 
-	godotenv.Load(".env")
+	err := godotenv.Load(".env")
+	if err != nil {
+		log.Printf("Error loading .env file: %v", err)
+	}
 
 	portString := os.Getenv("PORT")
 	if portString == "" {
