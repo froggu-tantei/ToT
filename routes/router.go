@@ -8,24 +8,24 @@ import (
 )
 
 // RegisterRoutes sets up the application's routes.
-// It takes the ServeMux and the APIConfig as dependencies.
-func RegisterRoutes(mux *http.ServeMux, apiCfg *handlers.APIConfig) {
+// It takes the ServeMux, the APIConfig, and rate limiters as parameters.
+func RegisterRoutes(mux *http.ServeMux, apiCfg *handlers.APIConfig, authLimiter, genericLimiter *middleware.RateLimiter) {
 
 	// Root endpoint
-	mux.HandleFunc("GET /", apiCfg.RootHandler)
+	mux.Handle("GET /", middleware.RateLimitMiddleware(genericLimiter)(http.HandlerFunc(apiCfg.RootHandler)))
 
 	// Readiness endpoint
-	mux.HandleFunc("GET /v1/readiness", apiCfg.ReadinessHandler)
+	mux.Handle("GET /v1/readiness", middleware.RateLimitMiddleware(genericLimiter)(http.HandlerFunc(apiCfg.ReadinessHandler)))
 
 	// Health check endpoint
-	mux.HandleFunc("GET /v1/healthz", apiCfg.HealthzHandler)
+	mux.Handle("GET /v1/healthz", middleware.RateLimitMiddleware(genericLimiter)(http.HandlerFunc(apiCfg.HealthzHandler)))
 
 	// Error endpoint
 	mux.HandleFunc("GET /v1/err", apiCfg.ErrorHandler)
 
 	// User routes
-	mux.HandleFunc("POST /v1/users", apiCfg.SignupHandler)
-	mux.HandleFunc("POST /v1/login", apiCfg.LoginHandler)
+	mux.Handle("POST /v1/users", middleware.RateLimitMiddleware(authLimiter)(http.HandlerFunc(apiCfg.SignupHandler)))
+	mux.Handle("POST /v1/login", middleware.RateLimitMiddleware(authLimiter)(http.HandlerFunc(apiCfg.LoginHandler)))
 
 	// User protected routes
 	mux.Handle("GET /v1/me", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.GetMeHandler)))

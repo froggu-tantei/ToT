@@ -51,13 +51,16 @@ func main() {
 		conn.Close()
 	}()
 
+	authLimiter := middleware.NewRateLimiter(5, 10)     // 5 requests per 10 seconds
+	genericLimiter := middleware.NewRateLimiter(20, 60) // 20 requests per 60 seconds
+
 	// Instantiate the APIConfig from handlers package
 	apiCfg := handlers.NewAPIConfig(db)
 
 	mux := http.NewServeMux()
 
 	// Use the handler method from apiCfg
-	routes.RegisterRoutes(mux, apiCfg)
+	routes.RegisterRoutes(mux, apiCfg, authLimiter, genericLimiter)
 
 	// Apply logging middleware
 	handlerWithCors := middleware.CorsMiddleware(mux)

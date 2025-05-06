@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -62,6 +63,11 @@ func respondWithError(w http.ResponseWriter, statusCode int, message string) {
 	w.WriteHeader(statusCode)
 	// Use the models.ErrorResponse for consistent error formatting
 	resp := models.NewErrorResponse(message)
-	data, _ := json.Marshal(resp)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("Error marshaling error response: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 	w.Write(data)
 }
