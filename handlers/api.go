@@ -4,17 +4,20 @@ import (
 	"net/http"
 
 	"github.com/XEDJK/ToT/db/database" // Import database package
+	"github.com/XEDJK/ToT/storage"
 )
 
 // APIConfig holds the dependencies for the API handlers.
 type APIConfig struct {
-	DB *database.Queries
+	DB          *database.Queries
+	FileStorage storage.FileStorage
 }
 
 // NewAPIConfig creates a new APIConfig.
-func NewAPIConfig(db *database.Queries) *APIConfig {
+func NewAPIConfig(db *database.Queries, fileStorage storage.FileStorage) *APIConfig {
 	return &APIConfig{
-		DB: db,
+		DB:          db,
+		FileStorage: fileStorage,
 	}
 }
 

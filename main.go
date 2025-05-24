@@ -12,6 +12,7 @@ import (
 	"github.com/XEDJK/ToT/handlers"    // Import handlers
 	"github.com/XEDJK/ToT/middleware"  // Import middleware
 	"github.com/XEDJK/ToT/routes"      // Import routes
+	"github.com/XEDJK/ToT/storage"     // Import storage
 	"github.com/jackc/pgx/v5/pgxpool"  // Import pgx driver
 	"github.com/joho/godotenv"         // Import godotenv for loading environment variables
 )
@@ -54,10 +55,25 @@ func main() {
 	authLimiter := middleware.NewRateLimiter(5, 10)     // 5 requests per 10 seconds
 	genericLimiter := middleware.NewRateLimiter(20, 60) // 20 requests per 60 seconds
 
+	fileStorage := storage.NewLocalStorage("uploads", "")
+	// Change fileStorage into this whenever I want to use S3 storage:
+	// fileStorage, err := storage.NewS3Storage(
+	// "your-bucket-name",
+	// "your-region",  // e.g., "eu-west-1"
+	// ""  // Optional CDN URL if I have one
+	// )
+	// if err != nil {
+	// log.Fatal("Failed to initialize S3 storage:", err)
+	//}
+
 	// Instantiate the APIConfig from handlers package
-	apiCfg := handlers.NewAPIConfig(db)
+	apiCfg := handlers.NewAPIConfig(db, fileStorage)
 
 	mux := http.NewServeMux()
+
+	// Serve static files
+	fileServer := http.FileServer(http.Dir("."))
+	mux.Handle("GET /uploads/", fileServer)
 
 	// Use the handler method from apiCfg
 	routes.RegisterRoutes(mux, apiCfg, authLimiter, genericLimiter)

@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/XEDJK/ToT/auth"
 	"github.com/XEDJK/ToT/db/database"
@@ -12,6 +15,7 @@ import (
 	"github.com/XEDJK/ToT/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -27,6 +31,12 @@ func (cfg *APIConfig) SignupHandler(w http.ResponseWriter, r *http.Request) {
 	// Basic validation
 	if req.Email == "" || req.Password == "" || req.Username == "" {
 		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Email, password, and username are required"))
+		return
+	}
+
+	// Validate bio length
+	if len(req.Bio) > 200 {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Bio cannot exceed 200 characters"))
 		return
 	}
 
@@ -61,9 +71,11 @@ func (cfg *APIConfig) SignupHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Create user in database
 	user, err := cfg.DB.CreateUser(r.Context(), database.CreateUserParams{
-		Email:        req.Email,
-		PasswordHash: string(hashedPassword),
-		Username:     req.Username,
+		Email:          req.Email,
+		PasswordHash:   string(hashedPassword),
+		Username:       req.Username,
+		Bio:            pgtype.Text{String: req.Bio, Valid: req.Bio != ""},
+		ProfilePicture: pgtype.Text{String: "", Valid: false},
 	})
 	if err != nil {
 		RespondWithJSON(w, http.StatusInternalServerError, models.NewErrorResponse("Error creating user"))
@@ -257,10 +269,12 @@ func (cfg *APIConfig) UpdateUserHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Prepare update params
 	updateParams := database.UpdateUserParams{
-		ID:           id,
-		Email:        currentUser.Email,        // Default to current value
-		PasswordHash: currentUser.PasswordHash, // Default to current value
-		Username:     currentUser.Username,     // Default to current value
+		ID:             id,
+		Email:          currentUser.Email,          // Default to current value
+		PasswordHash:   currentUser.PasswordHash,   // Default to current value
+		Username:       currentUser.Username,       // Default to current value
+		Bio:            currentUser.Bio,            // Default to current value
+		ProfilePicture: currentUser.ProfilePicture, // Default to current value
 	}
 
 	// Update fields if provided
@@ -298,6 +312,15 @@ func (cfg *APIConfig) UpdateUserHandler(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		updateParams.PasswordHash = string(hashedPassword)
+	}
+
+	if req.Bio != "" && req.Bio != currentUser.Bio.String {
+		// Validate bio length
+		if len(req.Bio) > 200 {
+			RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Bio cannot exceed 200 characters"))
+			return
+		}
+		updateParams.Bio = pgtype.Text{String: req.Bio, Valid: true}
 	}
 
 	// Update user in database
@@ -401,6 +424,208 @@ func (cfg *APIConfig) ListUsersHandler(w http.ResponseWriter, r *http.Request) {
 	// Return paginated response
 	response := models.NewPaginatedResponse(
 		userModels,
+		int(totalCount),
+		perPage,
+		page,
+	)
+
+	RespondWithJSON(w, http.StatusOK, response)
+}
+
+const (
+	MaxUploadSize = 5 * 1024 * 1024 // 5MB
+	UploadsDir    = "uploads"
+)
+
+var allowedFileTypes = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/gif":  ".gif",
+}
+
+// UploadProfilePictureHandler handles user profile picture uploads
+func (cfg *APIConfig) UploadProfilePictureHandler(w http.ResponseWriter, r *http.Request) {
+	// Get authenticated user
+	claims, ok := middleware.GetUserFromContext(r.Context())
+	if !ok {
+		RespondWithJSON(w, http.StatusUnauthorized, models.NewErrorResponse("Unauthorized"))
+		return
+	}
+
+	// Extract ID from path
+	idStr := r.PathValue("id")
+	if idStr == "" {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Missing user ID"))
+		return
+	}
+
+	// Parse UUID
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Invalid user ID format"))
+		return
+	}
+
+	// Verify user is updating their own profile
+	if claims.UserID != id {
+		RespondWithJSON(w, http.StatusForbidden, models.NewErrorResponse("Cannot upload picture to another user's profile"))
+		return
+	}
+
+	// Get current user data
+	currentUser, err := cfg.DB.GetUserByID(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		RespondWithJSON(w, http.StatusNotFound, models.NewErrorResponse("User not found"))
+		return
+	} else if err != nil {
+		RespondWithJSON(w, http.StatusInternalServerError, models.NewErrorResponse("Database error"))
+		return
+	}
+
+	// Limit request size
+	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadSize)
+	if err := r.ParseMultipartForm(MaxUploadSize); err != nil {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("File too large (max 5MB)"))
+		return
+	}
+
+	// Get file from request
+	file, header, err := r.FormFile("profile_picture")
+	if err != nil {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("No file provided or invalid form"))
+		return
+	}
+	defer file.Close()
+
+	// Additional validation based on header information
+	if header.Size > MaxUploadSize {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("File too large (max 5MB)"))
+		return
+	}
+
+	// Validate filename extension as additional check
+	fileName := header.Filename
+	extension := strings.ToLower(filepath.Ext(fileName))
+	if extension != ".jpg" && extension != ".png" && extension != ".gif" && extension != ".jpeg" {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Invalid file type. Only JPG, JPEG, PNG, and GIF are allowed"))
+		return
+	}
+
+	// Check file type
+	buff := make([]byte, 512) // 512 bytes for MIME detection
+	if _, err := file.Read(buff); err != nil {
+		RespondWithJSON(w, http.StatusInternalServerError, models.NewErrorResponse("Error reading file"))
+		return
+	}
+
+	// Reset file pointer to beginning
+	if _, err := file.Seek(0, 0); err != nil {
+		RespondWithJSON(w, http.StatusInternalServerError, models.NewErrorResponse("Error processing file"))
+		return
+	}
+
+	// Detect MIME type
+	fileType := http.DetectContentType(buff)
+	extension, valid := allowedFileTypes[fileType]
+	if !valid {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("File type not allowed. Please upload JPG, PNG or GIF"))
+		return
+	}
+
+	// Generate unique filename
+	uniqueFileName := id.String() + "_" + strconv.FormatInt(time.Now().UnixNano(), 10) + extension
+
+	// Store file using storage interface
+	filePath, err := cfg.FileStorage.Store(file, uniqueFileName)
+	if err != nil {
+		RespondWithJSON(w, http.StatusInternalServerError, models.NewErrorResponse("Error saving file"))
+		return
+	}
+
+	// Delete old profile picture if exists
+	if currentUser.ProfilePicture.Valid && currentUser.ProfilePicture.String != "" {
+		oldFilePath := currentUser.ProfilePicture.String
+		_ = cfg.FileStorage.Delete(oldFilePath) // Errors are already logged in the implementation
+	}
+
+	// Update user profile with new image path
+	updateParams := database.UpdateUserParams{
+		ID:             id,
+		Email:          currentUser.Email,
+		PasswordHash:   currentUser.PasswordHash,
+		Username:       currentUser.Username,
+		Bio:            currentUser.Bio,
+		ProfilePicture: pgtype.Text{String: filePath, Valid: true},
+	}
+
+	// Update user in database
+	updatedUser, err := cfg.DB.UpdateUser(r.Context(), updateParams)
+	if err != nil {
+		RespondWithJSON(w, http.StatusInternalServerError, models.NewErrorResponse("Error updating profile picture"))
+		return
+	}
+
+	// Return updated user
+	RespondWithJSON(w, http.StatusOK, models.NewSuccessResponse(models.DatabaseUserToUser(updatedUser)))
+}
+
+// GetLeaderboardHandler returns a paginated leaderboard based on last_place_count
+func (cfg *APIConfig) GetLeaderboardHandler(w http.ResponseWriter, r *http.Request) {
+	// Parse pagination parameters
+	page := 1
+	perPage := 10
+
+	// Get page from query string
+	pageStr := r.URL.Query().Get("page")
+	if pageStr != "" {
+		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+
+	// Get per_page from query string
+	perPageStr := r.URL.Query().Get("per_page")
+	if perPageStr != "" {
+		if parsedPerPage, err := strconv.Atoi(perPageStr); err == nil && parsedPerPage > 0 && parsedPerPage <= 100 {
+			perPage = parsedPerPage
+		}
+	}
+
+	// Calculate offset
+	offset := (page - 1) * perPage
+
+	// Get leaderboard with pagination
+	leaderboardRows, err := cfg.DB.GetLeaderBoard(r.Context(), database.GetLeaderBoardParams{
+		Limit:  int32(perPage),
+		Offset: int32(offset),
+	})
+	if err != nil {
+		RespondWithJSON(w, http.StatusInternalServerError, models.NewErrorResponse("Error fetching leaderboard"))
+		return
+	}
+
+	// Get total count for pagination
+	totalCount, err := cfg.DB.CountUsers(r.Context())
+	if err != nil {
+		RespondWithJSON(w, http.StatusInternalServerError, models.NewErrorResponse("Error counting users"))
+		return
+	}
+
+	// Convert leaderboard rows to API models
+	leaderboardEntries := make([]models.User, len(leaderboardRows))
+	for i, row := range leaderboardRows {
+		leaderboardEntries[i] = models.User{
+			ID:             row.ID,
+			Username:       row.Username,
+			LastPlaceCount: int(row.LastPlaceCount),
+			ProfilePicture: row.ProfilePicture.String,
+			Bio:            row.Bio.String,
+		}
+	}
+
+	// Return paginated response
+	response := models.NewPaginatedResponse(
+		leaderboardEntries,
 		int(totalCount),
 		perPage,
 		page,

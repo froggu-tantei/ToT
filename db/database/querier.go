@@ -14,9 +14,11 @@ type Querier interface {
 	CountUsers(ctx context.Context) (int64, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteUser(ctx context.Context, id uuid.UUID) error
+	GetLeaderBoard(ctx context.Context, arg GetLeaderBoardParams) ([]GetLeaderBoardRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	IncrementLastPlaceCount(ctx context.Context, id uuid.UUID) (User, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 }

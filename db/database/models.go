@@ -10,10 +10,13 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID        `json:"id"`
-	Email        string           `json:"email"`
-	PasswordHash string           `json:"password_hash"`
-	CreatedAt    pgtype.Timestamp `json:"created_at"`
-	UpdatedAt    pgtype.Timestamp `json:"updated_at"`
-	Username     string           `json:"username"`
+	ID             uuid.UUID        `json:"id"`
+	Email          string           `json:"email"`
+	PasswordHash   string           `json:"password_hash"`
+	CreatedAt      pgtype.Timestamp `json:"created_at"`
+	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
+	Username       string           `json:"username"`
+	LastPlaceCount int32            `json:"last_place_count"`
+	ProfilePicture pgtype.Text      `json:"profile_picture"`
+	Bio            pgtype.Text      `json:"bio"`
 }

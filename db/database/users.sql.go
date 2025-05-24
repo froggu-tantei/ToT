@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countUsers = `-- name: CountUsers :one
@@ -23,23 +24,33 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, password_hash, username)
+INSERT INTO users (email, password_hash, username, profile_picture, bio)
 VALUES (
   $1,
   $2,
-  $3
+  $3,
+  $4,
+  $5
 )
-RETURNING id, email, password_hash, created_at, updated_at, username
+RETURNING id, email, password_hash, created_at, updated_at, username, last_place_count, profile_picture, bio
 `
 
 type CreateUserParams struct {
-	Email        string `json:"email"`
-	PasswordHash string `json:"password_hash"`
-	Username     string `json:"username"`
+	Email          string      `json:"email"`
+	PasswordHash   string      `json:"password_hash"`
+	Username       string      `json:"username"`
+	ProfilePicture pgtype.Text `json:"profile_picture"`
+	Bio            pgtype.Text `json:"bio"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUser, arg.Email, arg.PasswordHash, arg.Username)
+	row := q.db.QueryRow(ctx, createUser,
+		arg.Email,
+		arg.PasswordHash,
+		arg.Username,
+		arg.ProfilePicture,
+		arg.Bio,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -48,6 +59,9 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Username,
+		&i.LastPlaceCount,
+		&i.ProfilePicture,
+		&i.Bio,
 	)
 	return i, err
 }
@@ -62,8 +76,54 @@ func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const getLeaderBoard = `-- name: GetLeaderBoard :many
+SELECT id, username, last_place_count, profile_picture, bio
+FROM users
+ORDER BY last_place_count DESC
+LIMIT $1 OFFSET $2
+`
+
+type GetLeaderBoardParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+type GetLeaderBoardRow struct {
+	ID             uuid.UUID   `json:"id"`
+	Username       string      `json:"username"`
+	LastPlaceCount int32       `json:"last_place_count"`
+	ProfilePicture pgtype.Text `json:"profile_picture"`
+	Bio            pgtype.Text `json:"bio"`
+}
+
+func (q *Queries) GetLeaderBoard(ctx context.Context, arg GetLeaderBoardParams) ([]GetLeaderBoardRow, error) {
+	rows, err := q.db.Query(ctx, getLeaderBoard, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetLeaderBoardRow{}
+	for rows.Next() {
+		var i GetLeaderBoardRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.LastPlaceCount,
+			&i.ProfilePicture,
+			&i.Bio,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, created_at, updated_at, username FROM users
+SELECT id, email, password_hash, created_at, updated_at, username, last_place_count, profile_picture, bio FROM users
 WHERE email = $1
 `
 
@@ -77,12 +137,15 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Username,
+		&i.LastPlaceCount,
+		&i.ProfilePicture,
+		&i.Bio,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, created_at, updated_at, username FROM users
+SELECT id, email, password_hash, created_at, updated_at, username, last_place_count, profile_picture, bio FROM users
 WHERE id = $1
 `
 
@@ -96,12 +159,15 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Username,
+		&i.LastPlaceCount,
+		&i.ProfilePicture,
+		&i.Bio,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, email, password_hash, created_at, updated_at, username FROM users
+SELECT id, email, password_hash, created_at, updated_at, username, last_place_count, profile_picture, bio FROM users
 WHERE username = $1
 `
 
@@ -115,12 +181,39 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Username,
+		&i.LastPlaceCount,
+		&i.ProfilePicture,
+		&i.Bio,
+	)
+	return i, err
+}
+
+const incrementLastPlaceCount = `-- name: IncrementLastPlaceCount :one
+UPDATE users
+SET last_place_count = last_place_count + 1, updated_at = NOW()
+WHERE id = $1
+RETURNING id, email, password_hash, created_at, updated_at, username, last_place_count, profile_picture, bio
+`
+
+func (q *Queries) IncrementLastPlaceCount(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, incrementLastPlaceCount, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Username,
+		&i.LastPlaceCount,
+		&i.ProfilePicture,
+		&i.Bio,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, password_hash, created_at, updated_at, username FROM users
+SELECT id, email, password_hash, created_at, updated_at, username, last_place_count, profile_picture, bio FROM users
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
 `
@@ -146,6 +239,9 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Username,
+			&i.LastPlaceCount,
+			&i.ProfilePicture,
+			&i.Bio,
 		); err != nil {
 			return nil, err
 		}
@@ -162,16 +258,20 @@ UPDATE users
 SET email = $2,
     password_hash = $3,
     updated_at = NOW(),
-    username = $4
+    username = $4,
+    bio = $5,
+    profile_picture = $6
 WHERE id = $1
-RETURNING id, email, password_hash, created_at, updated_at, username
+RETURNING id, email, password_hash, created_at, updated_at, username, last_place_count, profile_picture, bio
 `
 
 type UpdateUserParams struct {
-	ID           uuid.UUID `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"password_hash"`
-	Username     string    `json:"username"`
+	ID             uuid.UUID   `json:"id"`
+	Email          string      `json:"email"`
+	PasswordHash   string      `json:"password_hash"`
+	Username       string      `json:"username"`
+	Bio            pgtype.Text `json:"bio"`
+	ProfilePicture pgtype.Text `json:"profile_picture"`
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
@@ -180,6 +280,8 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		arg.Email,
 		arg.PasswordHash,
 		arg.Username,
+		arg.Bio,
+		arg.ProfilePicture,
 	)
 	var i User
 	err := row.Scan(
@@ -189,6 +291,9 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Username,
+		&i.LastPlaceCount,
+		&i.ProfilePicture,
+		&i.Bio,
 	)
 	return i, err
 }

@@ -5,7 +5,10 @@ CREATE TABLE users (
   password_hash TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  username TEXT NOT NULL UNIQUE
+  username TEXT NOT NULL UNIQUE,
+  last_place_count INTEGER NOT NULL DEFAULT 0,
+  profile_picture TEXT,
+  bio TEXT
 );
 
 -- +goose Down

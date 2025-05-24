@@ -34,5 +34,6 @@ func RegisterRoutes(mux *http.ServeMux, apiCfg *handlers.APIConfig, authLimiter,
 	mux.Handle("PUT /v1/users/{id}", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.UpdateUserHandler)))
 	mux.Handle("DELETE /v1/users/{id}", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.DeleteUserHandler)))
 	mux.Handle("GET /v1/users", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.ListUsersHandler)))
-
+	mux.Handle("POST /v1/users/{id}/profile-picture", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.UploadProfilePictureHandler)))
+	mux.Handle("GET /v1/leaderboard", middleware.RateLimitMiddleware(genericLimiter)(http.HandlerFunc(apiCfg.GetLeaderboardHandler)))
 }
