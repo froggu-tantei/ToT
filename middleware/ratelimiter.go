@@ -29,6 +29,7 @@ func NewRateLimiter(rate float64, capacity int) *RateLimiter {
 }
 
 // Allow checks if a request is allowed under rate limiting
+// Allow checks if a request is allowed under rate limiting
 func (r *RateLimiter) Allow(clientID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -37,7 +38,7 @@ func (r *RateLimiter) Allow(clientID string) bool {
 
 	// Initialize new client
 	if _, exists := r.tokens[clientID]; !exists {
-		r.tokens[clientID] = float64(r.capacity)
+		r.tokens[clientID] = float64(r.capacity) - 1.0 // Consume one token immediately
 		r.lastRefill[clientID] = now
 		return true
 	}
@@ -52,14 +53,17 @@ func (r *RateLimiter) Allow(clientID string) bool {
 		currentTokens = float64(r.capacity)
 	}
 
+	// Update last refill time
+	r.lastRefill[clientID] = now
+
 	// Check if request can be allowed
 	if currentTokens < 1.0 {
+		r.tokens[clientID] = currentTokens // Update even if not allowing
 		return false
 	}
 
 	// Consume token and update state
 	r.tokens[clientID] = currentTokens - 1.0
-	r.lastRefill[clientID] = now
 	return true
 }
 

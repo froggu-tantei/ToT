@@ -35,6 +35,18 @@ func (cfg *APIConfig) SignupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Add email format validation
+	if !isValidEmail(req.Email) {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Invalid email format"))
+		return
+	}
+
+	// Add password length validation
+	if len(req.Password) < 6 {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Password must be at least 6 characters"))
+		return
+	}
+
 	// Validate bio length
 	if len(req.Bio) > 200 {
 		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Bio cannot exceed 200 characters"))
@@ -109,6 +121,12 @@ func (cfg *APIConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Invalid request format"))
+		return
+	}
+
+	// Basic validation - add this before database operations
+	if req.Email == "" || req.Password == "" {
+		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Email and password are required"))
 		return
 	}
 
@@ -278,8 +296,14 @@ func (cfg *APIConfig) UpdateUserHandler(w http.ResponseWriter, r *http.Request) 
 		ProfilePicture: currentUser.ProfilePicture, // Default to current value
 	}
 
-	// Update fields if provided
+	// Update fields if provided - ADD VALIDATION HERE
 	if req.Email != "" && req.Email != currentUser.Email {
+		// ADD: Validate email format
+		if !isValidEmail(req.Email) {
+			RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Invalid email format"))
+			return
+		}
+
 		// Check if new email is already taken
 		_, err := cfg.DB.GetUserByEmail(r.Context(), req.Email)
 		if err == nil {
@@ -306,6 +330,12 @@ func (cfg *APIConfig) UpdateUserHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.Password != "" {
+		// ADD: Validate password length
+		if len(req.Password) < 6 {
+			RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Password must be at least 6 characters"))
+			return
+		}
+
 		// Hash new password
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {

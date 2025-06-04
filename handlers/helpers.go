@@ -4,9 +4,18 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"regexp"
 
 	"github.com/XEDJK/ToT/models"
 )
+
+// Email validation regex
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+// isValidEmail validates email format
+func isValidEmail(email string) bool {
+	return emailRegex.MatchString(email)
+}
 
 // RespondWithJSON sends a JSON response
 func RespondWithJSON(w http.ResponseWriter, code int, payload any) {
