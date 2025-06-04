@@ -13,6 +13,7 @@ import (
 	"github.com/XEDJK/ToT/db/database"
 	"github.com/XEDJK/ToT/middleware"
 	"github.com/XEDJK/ToT/models"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -171,7 +172,7 @@ func (cfg *APIConfig) GetMeHandler(w http.ResponseWriter, r *http.Request) {
 // GetUserByIDHandler returns a user by ID
 func (cfg *APIConfig) GetUserByIDHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path
-	idStr := r.PathValue("id")
+	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
 		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Missing user ID"))
 		return
@@ -201,7 +202,7 @@ func (cfg *APIConfig) GetUserByIDHandler(w http.ResponseWriter, r *http.Request)
 // GetUserByUsernameHandler returns a user by username
 func (cfg *APIConfig) GetUserByUsernameHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract username from path
-	username := r.PathValue("username")
+	username := chi.URLParam(r, "username")
 	if username == "" {
 		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Missing username"))
 		return
@@ -231,7 +232,7 @@ func (cfg *APIConfig) UpdateUserHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Extract ID from path
-	idStr := r.PathValue("id")
+	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
 		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Missing user ID"))
 		return
@@ -344,7 +345,7 @@ func (cfg *APIConfig) DeleteUserHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Extract ID from path
-	idStr := r.PathValue("id")
+	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
 		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Missing user ID"))
 		return
@@ -453,7 +454,7 @@ func (cfg *APIConfig) UploadProfilePictureHandler(w http.ResponseWriter, r *http
 	}
 
 	// Extract ID from path
-	idStr := r.PathValue("id")
+	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
 		RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Missing user ID"))
 		return

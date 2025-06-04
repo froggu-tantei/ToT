@@ -69,22 +69,15 @@ func main() {
 	// Instantiate the APIConfig from handlers package
 	apiCfg := handlers.NewAPIConfig(db, fileStorage)
 
-	mux := http.NewServeMux()
+	// Create Chi router (this handles all middleware internally)
+	router := routes.RegisterRoutes(apiCfg, authLimiter, genericLimiter)
 
-	// Serve static files
-	fileServer := http.FileServer(http.Dir("."))
-	mux.Handle("GET /uploads/", fileServer)
-
-	// Use the handler method from apiCfg
-	routes.RegisterRoutes(mux, apiCfg, authLimiter, genericLimiter)
-
-	// Apply logging middleware
-	handlerWithCors := middleware.CorsMiddleware(mux)
-	loggedHandler := middleware.LoggingMiddleware(handlerWithCors)
+	// Serve static files using Chi.
+	router.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 
 	srv := &http.Server{
 		Addr:         ":" + portString,
-		Handler:      loggedHandler,
+		Handler:      router,
 		IdleTimeout:  60 * time.Second,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,

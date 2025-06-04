@@ -1,39 +1,49 @@
 package routes
 
 import (
-	"net/http"
-
 	"github.com/XEDJK/ToT/handlers" // Import handlers to access APIConfig and handler methods
 	"github.com/XEDJK/ToT/middleware"
+	"github.com/go-chi/chi/v5" // Import chi for routing
 )
 
 // RegisterRoutes sets up the application's routes.
-// It takes the ServeMux, the APIConfig, and rate limiters as parameters.
-func RegisterRoutes(mux *http.ServeMux, apiCfg *handlers.APIConfig, authLimiter, genericLimiter *middleware.RateLimiter) {
+func RegisterRoutes(apiCfg *handlers.APIConfig, authLimiter, genericLimiter *middleware.RateLimiter) chi.Router {
+
+	r := chi.NewRouter()
+
+	r.Use(middleware.CorsMiddleware)
+	r.Use(middleware.LoggingMiddleware)
 
 	// Root endpoint
-	mux.Handle("GET /", middleware.RateLimitMiddleware(genericLimiter)(http.HandlerFunc(apiCfg.RootHandler)))
+	r.With(middleware.RateLimitMiddleware(genericLimiter)).Get("/", apiCfg.RootHandler)
 
-	// Readiness endpoint
-	mux.Handle("GET /v1/readiness", middleware.RateLimitMiddleware(genericLimiter)(http.HandlerFunc(apiCfg.ReadinessHandler)))
+	// API v1 routes
+	r.Route("/v1", func(r chi.Router) {
+		// Health endpoints
+		r.With(middleware.RateLimitMiddleware(genericLimiter)).Get("/readiness", apiCfg.ReadinessHandler)
+		r.With(middleware.RateLimitMiddleware(genericLimiter)).Get("/healthz", apiCfg.HealthzHandler)
+		r.Get("/err", apiCfg.ErrorHandler)
 
-	// Health check endpoint
-	mux.Handle("GET /v1/healthz", middleware.RateLimitMiddleware(genericLimiter)(http.HandlerFunc(apiCfg.HealthzHandler)))
+		// User authentication routes
+		r.With(middleware.RateLimitMiddleware(authLimiter)).Post("/users", apiCfg.SignupHandler)
+		r.With(middleware.RateLimitMiddleware(authLimiter)).Post("/login", apiCfg.LoginHandler)
 
-	// Error endpoint
-	mux.HandleFunc("GET /v1/err", apiCfg.ErrorHandler)
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.AuthMiddleware)
 
-	// User routes
-	mux.Handle("POST /v1/users", middleware.RateLimitMiddleware(authLimiter)(http.HandlerFunc(apiCfg.SignupHandler)))
-	mux.Handle("POST /v1/login", middleware.RateLimitMiddleware(authLimiter)(http.HandlerFunc(apiCfg.LoginHandler)))
+			r.Get("/me", apiCfg.GetMeHandler)
+			r.Get("/users", apiCfg.ListUsersHandler)
+			r.Get("/users/{id}", apiCfg.GetUserByIDHandler)
+			r.Get("/users/username/{username}", apiCfg.GetUserByUsernameHandler)
+			r.Put("/users/{id}", apiCfg.UpdateUserHandler)
+			r.Delete("/users/{id}", apiCfg.DeleteUserHandler)
+			r.Post("/users/{id}/profile-picture", apiCfg.UploadProfilePictureHandler)
+		})
 
-	// User protected routes
-	mux.Handle("GET /v1/me", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.GetMeHandler)))
-	mux.Handle("GET /v1/users/{id}", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.GetUserByIDHandler)))
-	mux.Handle("GET /v1/users/username/{username}", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.GetUserByUsernameHandler)))
-	mux.Handle("PUT /v1/users/{id}", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.UpdateUserHandler)))
-	mux.Handle("DELETE /v1/users/{id}", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.DeleteUserHandler)))
-	mux.Handle("GET /v1/users", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.ListUsersHandler)))
-	mux.Handle("POST /v1/users/{id}/profile-picture", middleware.AuthMiddleware(http.HandlerFunc(apiCfg.UploadProfilePictureHandler)))
-	mux.Handle("GET /v1/leaderboard", middleware.RateLimitMiddleware(genericLimiter)(http.HandlerFunc(apiCfg.GetLeaderboardHandler)))
+		// Leaderboard
+		r.With(middleware.RateLimitMiddleware(genericLimiter)).Get("/leaderboard", apiCfg.GetLeaderboardHandler)
+	})
+
+	return r
 }
