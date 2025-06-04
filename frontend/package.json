@@ -60,5 +60,8 @@
 	},
 	"keywords": [
 		"svelte"
-	]
+	],
+	"dependencies": {
+		"cookie": "^1.0.2"
+	}
 }
