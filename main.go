@@ -38,7 +38,7 @@ func main() {
 
 	conn, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
-		log.Fatal("Cant't connect to the database: ", err)
+		log.Fatal("Can't connect to the database: ", err)
 	}
 
 	// Ping the database to verify connection
