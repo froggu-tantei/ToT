@@ -298,7 +298,7 @@ func (cfg *APIConfig) UpdateUserHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Update fields if provided - ADD VALIDATION HERE
 	if req.Email != "" && req.Email != currentUser.Email {
-		// ADD: Validate email format
+		// Validate email format
 		if !isValidEmail(req.Email) {
 			RespondWithJSON(w, http.StatusBadRequest, models.NewErrorResponse("Invalid email format"))
 			return

@@ -4,17 +4,19 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"regexp"
+	"net/mail"
 
 	"github.com/XEDJK/ToT/models"
 )
 
-// Email validation regex
-var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-
-// isValidEmail validates email format
+// isValidEmail validates email format using Go's standard library
 func isValidEmail(email string) bool {
-	return emailRegex.MatchString(email)
+	addr, err := mail.ParseAddress(email)
+	if err != nil {
+		return false
+	}
+	// Ensure it's just an email address, not "Name <email@domain.com>" format
+	return addr.Address == email
 }
 
 // RespondWithJSON sends a JSON response
