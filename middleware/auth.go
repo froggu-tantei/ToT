@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/XEDJK/ToT/auth"
-	"github.com/XEDJK/ToT/models"
+	"github.com/froggu-tantei/ToT/auth"
+	"github.com/froggu-tantei/ToT/models"
 )
 
 // Key for storing user claims in request context

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/XEDJK/ToT/models"
+	"github.com/froggu-tantei/ToT/models"
 )
 
 // RateLimiter implements a simple token bucket rate limiter

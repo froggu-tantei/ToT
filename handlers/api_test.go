@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/XEDJK/ToT/models"
-	"github.com/XEDJK/ToT/storage"
+	"github.com/froggu-tantei/ToT/models"
+	"github.com/froggu-tantei/ToT/storage"
 )
 
 func TestRootHandler(t *testing.T) {

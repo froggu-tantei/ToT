@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/XEDJK/ToT/db/database"
+	"github.com/froggu-tantei/ToT/db/database"
 	"github.com/google/uuid"
 )
 

@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/XEDJK/ToT/db/database" // Import database package
-	"github.com/XEDJK/ToT/storage"
+	"github.com/froggu-tantei/ToT/db/database" // Import database package
+	"github.com/froggu-tantei/ToT/storage"
 )
 
 // APIConfig holds the dependencies for the API handlers.

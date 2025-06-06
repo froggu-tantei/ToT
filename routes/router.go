@@ -1,8 +1,8 @@
 package routes
 
 import (
-	"github.com/XEDJK/ToT/handlers" // Import handlers to access APIConfig and handler methods
-	"github.com/XEDJK/ToT/middleware"
+	"github.com/froggu-tantei/ToT/handlers" // Import handlers to access APIConfig and handler methods
+	"github.com/froggu-tantei/ToT/middleware"
 	"github.com/go-chi/chi/v5" // Import chi for routing
 )
 

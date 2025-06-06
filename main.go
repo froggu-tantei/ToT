@@ -8,13 +8,13 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/XEDJK/ToT/db/database" // Import generated db code
-	"github.com/XEDJK/ToT/handlers"    // Import handlers
-	"github.com/XEDJK/ToT/middleware"  // Import middleware
-	"github.com/XEDJK/ToT/routes"      // Import routes
-	"github.com/XEDJK/ToT/storage"     // Import storage
-	"github.com/jackc/pgx/v5/pgxpool"  // Import pgx driver
-	"github.com/joho/godotenv"         // Import godotenv for loading environment variables
+	"github.com/froggu-tantei/ToT/db/database" // Import generated db code
+	"github.com/froggu-tantei/ToT/handlers"    // Import handlers
+	"github.com/froggu-tantei/ToT/middleware"  // Import middleware
+	"github.com/froggu-tantei/ToT/routes"      // Import routes
+	"github.com/froggu-tantei/ToT/storage"     // Import storage
+	"github.com/jackc/pgx/v5/pgxpool"          // Import pgx driver
+	"github.com/joho/godotenv"                 // Import godotenv for loading environment variables
 )
 
 func main() {

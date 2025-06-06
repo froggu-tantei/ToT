@@ -1,4 +1,4 @@
-module github.com/XEDJK/ToT
+module github.com/froggu-tantei/ToT
 
 go 1.24.2
 

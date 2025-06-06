@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/mail"
 
-	"github.com/XEDJK/ToT/models"
+	"github.com/froggu-tantei/ToT/models"
 )
 
 // isValidEmail validates email format using Go's standard library
