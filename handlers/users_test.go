@@ -22,7 +22,7 @@ func TestSignupHandlerValidation(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		requestBody    interface{}
+		requestBody    any
 		expectedStatus int
 		expectedError  string
 	}{
@@ -114,7 +114,7 @@ func TestLoginHandlerValidation(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		requestBody    interface{}
+		requestBody    any
 		expectedStatus int
 		expectedError  string
 	}{

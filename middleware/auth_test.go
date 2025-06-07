@@ -134,7 +134,7 @@ func TestAuthMiddleware(t *testing.T) {
 func TestGetUserFromContext(t *testing.T) {
 	tests := []struct {
 		name           string
-		contextValue   interface{}
+		contextValue   any
 		expectedOK     bool
 		expectedClaims *auth.Claims
 	}{
