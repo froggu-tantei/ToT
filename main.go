@@ -19,8 +19,6 @@ import (
 
 func main() {
 
-	const filepathRoot = "."
-
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Printf("Error loading .env file: %v", err)
@@ -47,10 +45,6 @@ func main() {
 	}
 
 	db := database.New(conn)
-
-	defer func() {
-		conn.Close()
-	}()
 
 	authLimiter := middleware.NewRateLimiter(5, 10)     // 5 requests per 10 seconds
 	genericLimiter := middleware.NewRateLimiter(20, 60) // 20 requests per 60 seconds
@@ -89,7 +83,7 @@ func main() {
 			log.Fatalf("ListenAndServe(): %v", err)
 		}
 	}()
-
+	defer conn.Close()
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit

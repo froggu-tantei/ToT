@@ -29,7 +29,6 @@ func NewRateLimiter(rate float64, capacity int) *RateLimiter {
 }
 
 // Allow checks if a request is allowed under rate limiting
-// Allow checks if a request is allowed under rate limiting
 func (r *RateLimiter) Allow(clientID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
