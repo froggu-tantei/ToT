@@ -127,3 +127,29 @@ func TestRateLimiterWithInvalidAuth(t *testing.T) {
 		t.Error("First request with invalid auth should be allowed")
 	}
 }
+
+func TestRateLimitMiddleware(t *testing.T) {
+	limiter := NewRateLimiter(1.0, 1) // Very restrictive
+	defer limiter.Close()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	wrappedHandler := RateLimitMiddleware(limiter)(handler)
+	req := httptest.NewRequest("GET", "/", nil)
+
+	// First request should pass
+	w1 := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(w1, req)
+	if w1.Code != http.StatusOK {
+		t.Error("First request should pass")
+	}
+
+	// Second request should be rate limited
+	w2 := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(w2, req)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Error("Second request should be rate limited")
+	}
+}
