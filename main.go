@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/froggu-tantei/ToT/db/database" // Import generated db code
@@ -46,8 +47,17 @@ func main() {
 
 	db := database.New(conn)
 
-	authLimiter := middleware.NewRateLimiter(5, 10)     // 5 requests per 10 seconds
-	genericLimiter := middleware.NewRateLimiter(20, 60) // 20 requests per 60 seconds
+	// Rate limiting configuration with fallbacks
+	authLimit := getEnvAsInt("AUTH_RATE_LIMIT", 3)          // Default: 3 requests
+	authWindow := getEnvAsInt("AUTH_RATE_WINDOW", 60)       // Default: 60 seconds
+	genericLimit := getEnvAsInt("GENERIC_RATE_LIMIT", 30)   // Default: 30 requests
+	genericWindow := getEnvAsInt("GENERIC_RATE_WINDOW", 60) // Default: 60 seconds
+
+	// Convert to rate (requests per second) and pass capacity
+	authRate := float64(authLimit) / float64(authWindow)                   // requests per second
+	genericRate := float64(genericLimit) / float64(genericWindow)          // requests per second// Default: 60 seconds
+	authLimiter := middleware.NewRateLimiter(authRate, authLimit)          // rate capacity
+	genericLimiter := middleware.NewRateLimiter(genericRate, genericLimit) // rate capacity
 
 	fileStorage := storage.NewLocalStorage("uploads", "")
 	// Change fileStorage into this whenever I want to use S3 storage:
@@ -94,4 +104,15 @@ func main() {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 	log.Println("Server exiting")
+}
+
+// Helper function to get environment variable as int with fallback
+func getEnvAsInt(key string, fallback int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
+		log.Printf("Invalid value for %s: %s, using fallback: %d", key, value, fallback)
+	}
+	return fallback
 }
