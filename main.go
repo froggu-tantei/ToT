@@ -53,11 +53,42 @@ func main() {
 	genericLimit := getEnvAsInt("GENERIC_RATE_LIMIT", 30)   // Default: 30 requests
 	genericWindow := getEnvAsInt("GENERIC_RATE_WINDOW", 60) // Default: 60 seconds
 
-	// Convert to rate (requests per second) and pass capacity
-	authRate := float64(authLimit) / float64(authWindow)                   // requests per second
-	genericRate := float64(genericLimit) / float64(genericWindow)          // requests per second// Default: 60 seconds
-	authLimiter := middleware.NewRateLimiter(authRate, authLimit)          // rate capacity
-	genericLimiter := middleware.NewRateLimiter(genericRate, genericLimit) // rate capacity
+	// Convert to rate (requests per second) and create configs
+	authRate := float64(authLimit) / float64(authWindow)
+	genericRate := float64(genericLimit) / float64(genericWindow)
+
+	// Create rate limiter configs
+	authConfig := middleware.RateLimiterConfig{
+		Rate:            authRate,
+		Capacity:        authLimit,
+		MaxBuckets:      10000,
+		CleanupInterval: 5 * time.Minute,
+		BucketTTL:       10 * time.Minute,
+		MaxRetryAfter:   5 * time.Minute,
+	}
+
+	genericConfig := middleware.RateLimiterConfig{
+		Rate:            genericRate,
+		Capacity:        genericLimit,
+		MaxBuckets:      10000,
+		CleanupInterval: 5 * time.Minute,
+		BucketTTL:       10 * time.Minute,
+		MaxRetryAfter:   5 * time.Minute,
+	}
+
+	// Create rate limiters with proper configs
+	authLimiter := middleware.NewRateLimiter(authConfig)
+	genericLimiter := middleware.NewRateLimiter(genericConfig)
+
+	// Ensure proper cleanup on shutdown
+	defer func() {
+		if err := authLimiter.Close(); err != nil {
+			log.Printf("Error closing auth limiter: %v", err)
+		}
+		if err := genericLimiter.Close(); err != nil {
+			log.Printf("Error closing generic limiter: %v", err)
+		}
+	}()
 
 	fileStorage := storage.NewLocalStorage("uploads", "")
 	// Change fileStorage into this whenever I want to use S3 storage:
@@ -93,6 +124,7 @@ func main() {
 			log.Fatalf("ListenAndServe(): %v", err)
 		}
 	}()
+
 	defer conn.Close()
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)

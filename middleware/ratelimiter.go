@@ -1,140 +1,203 @@
 package middleware
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/froggu-tantei/ToT/auth"
 	"github.com/froggu-tantei/ToT/models"
 )
 
+// RateLimiterConfig holds all configuration for the rate limiter
+type RateLimiterConfig struct {
+	Rate            float64       // Tokens per second
+	Capacity        int           // Bucket capacity
+	MaxBuckets      int           // Maximum concurrent buckets
+	CleanupInterval time.Duration // How often to cleanup old buckets
+	BucketTTL       time.Duration // How long before a bucket expires
+	MaxRetryAfter   time.Duration // Maximum retry-after time
+}
+
+// DefaultConfig returns sensible defaults
+func DefaultConfig() RateLimiterConfig {
+	return RateLimiterConfig{
+		Rate:            10.0,             // 10 requests per second
+		Capacity:        20,               // Burst of 20
+		MaxBuckets:      10000,            // 10k concurrent clients
+		CleanupInterval: 5 * time.Minute,  // Cleanup every 5 minutes
+		BucketTTL:       10 * time.Minute, // Expire buckets after 10 minutes
+		MaxRetryAfter:   5 * time.Minute,  // Max 5 minute retry
+	}
+}
+
+// Metrics holds rate limiter statistics
+type Metrics struct {
+	RequestsAllowed int64 // Total requests allowed
+	RequestsDenied  int64 // Total requests denied
+	ActiveBuckets   int64 // Current active buckets
+	BucketsCreated  int64 // Total buckets created
+	BucketsExpired  int64 // Total buckets expired
+	LastCleanup     int64 // Unix timestamp of last cleanup
+}
+
+// GetMetrics returns current metrics (thread-safe)
+func (m *Metrics) GetMetrics() map[string]int64 {
+	return map[string]int64{
+		"requests_allowed": atomic.LoadInt64(&m.RequestsAllowed),
+		"requests_denied":  atomic.LoadInt64(&m.RequestsDenied),
+		"active_buckets":   atomic.LoadInt64(&m.ActiveBuckets),
+		"buckets_created":  atomic.LoadInt64(&m.BucketsCreated),
+		"buckets_expired":  atomic.LoadInt64(&m.BucketsExpired),
+		"last_cleanup":     atomic.LoadInt64(&m.LastCleanup),
+	}
+}
+
 // TokenBucket represents a thread-safe token bucket for rate limiting
 type TokenBucket struct {
-	mu         sync.Mutex // Protects all fields below
-	tokens     float64    // Current number of tokens available
-	capacity   int        // Maximum number of tokens the bucket can hold
-	rate       float64    // Rate in tokens per second
-	lastRefill time.Time  // Last time tokens were refilled
+	mu         sync.Mutex
+	tokens     float64
+	capacity   int
+	rate       float64
+	lastRefill time.Time
 }
 
 // bucketInfo holds bucket and metadata
 type bucketInfo struct {
-	bucket   *TokenBucket // The actual token bucket
-	lastSeen time.Time    // Last time this bucket was accessed
+	bucket   *TokenBucket
+	lastSeen int64 // atomic access
 }
 
-// RateLimiter implements a secure token bucket rate limiter
+// RateLimiter implements a production-ready token bucket rate limiter
 type RateLimiter struct {
-	buckets     map[string]*bucketInfo // Map of client IDs to bucket info
-	mu          sync.RWMutex           // Protects the buckets map
-	rate        float64                // Rate in tokens per second
-	capacity    int                    // Capacity of each bucket
-	maxBuckets  int                    // Maximum number of buckets allowed
-	cleanupDone chan struct{}          // Channel to signal cleanup goroutine to stop
+	config  RateLimiterConfig
+	buckets sync.Map // Use sync.Map for better concurrent access
+	metrics Metrics
+	ctx     context.Context
+	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
-// NewRateLimiter creates a new rate limiter with cleanup
-func NewRateLimiter(rate float64, capacity int) *RateLimiter {
-	return NewRateLimiterWithLimit(rate, capacity, 10000) // Default limit
-}
-
-// NewRateLimiterWithLimit creates a rate limiter with custom bucket limit
-func NewRateLimiterWithLimit(rate float64, capacity int, maxBuckets int) *RateLimiter {
+// NewRateLimiter creates a new rate limiter with custom config
+func NewRateLimiter(config RateLimiterConfig) *RateLimiter {
+	ctx, cancel := context.WithCancel(context.Background())
 	rl := &RateLimiter{
-		buckets:     make(map[string]*bucketInfo),
-		rate:        rate,
-		capacity:    capacity,
-		maxBuckets:  maxBuckets,
-		cleanupDone: make(chan struct{}),
+		config: config,
+		ctx:    ctx,
+		cancel: cancel,
+		done:   make(chan struct{}),
 	}
 
-	// Start cleanup goroutine
+	// Start background cleanup
 	go rl.cleanup()
 	return rl
 }
 
-// Close stops the cleanup goroutine
-func (rl *RateLimiter) Close() {
-	close(rl.cleanupDone)
+// NewDefaultRateLimiter creates a rate limiter with default settings
+func NewDefaultRateLimiter() *RateLimiter {
+	return NewRateLimiter(DefaultConfig())
 }
 
-// cleanup removes expired buckets
+// Close gracefully shuts down the rate limiter
+func (rl *RateLimiter) Close() error {
+	rl.cancel()
+	select {
+	case <-rl.done:
+		return nil
+	case <-time.After(time.Second):
+		return fmt.Errorf("cleanup goroutine did not stop in time")
+	}
+}
+
+// cleanup runs the background cleanup process
 func (rl *RateLimiter) cleanup() {
-	ticker := time.NewTicker(5 * time.Minute)
+	defer close(rl.done)
+	ticker := time.NewTicker(rl.config.CleanupInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			rl.cleanupExpiredBuckets()
-		case <-rl.cleanupDone:
+		case <-rl.ctx.Done():
 			return
 		}
 	}
 }
 
-// cleanupExpiredBuckets removes buckets unused for 10 minutes
+// cleanupExpiredBuckets removes old buckets and updates metrics
 func (rl *RateLimiter) cleanupExpiredBuckets() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+	cutoff := time.Now().Add(-rl.config.BucketTTL).Unix()
+	var expired int64
 
-	cutoff := time.Now().Add(-10 * time.Minute)
-	for clientID, info := range rl.buckets {
-		if info.lastSeen.Before(cutoff) {
-			delete(rl.buckets, clientID)
+	rl.buckets.Range(func(key, value interface{}) bool {
+		info := value.(*bucketInfo)
+		if atomic.LoadInt64(&info.lastSeen) < cutoff {
+			rl.buckets.Delete(key)
+			expired++
 		}
-	}
+		return true
+	})
+
+	// Update metrics
+	atomic.AddInt64(&rl.metrics.BucketsExpired, expired)
+	atomic.AddInt64(&rl.metrics.ActiveBuckets, -expired)
+	atomic.StoreInt64(&rl.metrics.LastCleanup, time.Now().Unix())
 }
 
-// consume attempts to consume tokens from the bucket - NOW THREAD-SAFE! ✅
+// consume attempts to consume tokens from the bucket
 func (tb *TokenBucket) consume(tokens int, now time.Time) bool {
-	tb.mu.Lock()         // LOCK: Protect all operations
-	defer tb.mu.Unlock() // UNLOCK: Always release
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 
-	// Calculate token refill since last check
-	timePassed := now.Sub(tb.lastRefill).Seconds()
-	refill := timePassed * tb.rate
-
-	// Add tokens to bucket, up to capacity
-	tb.tokens += refill
-	if tb.tokens > float64(tb.capacity) {
-		tb.tokens = float64(tb.capacity)
-	}
-
-	// Update last refill time
+	// Refill tokens based on elapsed time
+	elapsed := now.Sub(tb.lastRefill).Seconds()
+	refill := elapsed * tb.rate
+	tb.tokens = min(tb.tokens+refill, float64(tb.capacity))
 	tb.lastRefill = now
 
-	// Check if request can be allowed
+	// Check if we have enough tokens
 	if tb.tokens < float64(tokens) {
 		return false
 	}
 
-	// Consume tokens
 	tb.tokens -= float64(tokens)
 	return true
 }
 
-// getClientID generates a secure client identifier
+// getRemainingTokens returns current token count without consuming
+func (tb *TokenBucket) getRemainingTokens(now time.Time) float64 {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	elapsed := now.Sub(tb.lastRefill).Seconds()
+	refill := elapsed * tb.rate
+	return min(tb.tokens+refill, float64(tb.capacity))
+}
+
+// getClientID generates a client identifier with configurable privacy
 func (rl *RateLimiter) getClientID(r *http.Request) string {
-	// Try to extract user ID from validated token first
+	// Try JWT-based identification first
 	if userID := rl.extractUserID(r); userID != "" {
-		// Hash the user ID/token for privacy - FULL HASH for security
+		// Use first 16 bytes of hash for memory efficiency while maintaining security
 		hash := sha256.Sum256([]byte(userID))
-		return fmt.Sprintf("token:%x", hash) // Full 256-bit hash
+		return fmt.Sprintf("user:%x", hash[:16]) // 128-bit hash is plenty
 	}
 
-	// Fallback to IP with proper forwarded header handling
+	// Fallback to IP-based identification
 	ip := rl.getRealIP(r)
 	return fmt.Sprintf("ip:%s", ip)
 }
 
-// extractUserID extracts user ID from Authorization header
+// extractUserID extracts user ID from JWT token
 func (rl *RateLimiter) extractUserID(r *http.Request) string {
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
@@ -142,34 +205,35 @@ func (rl *RateLimiter) extractUserID(r *http.Request) string {
 	}
 
 	token := strings.TrimPrefix(authHeader, "Bearer ")
-
-	// Validate JWT token using your existing auth package
 	claims, err := auth.ValidateToken(token)
 	if err != nil {
-		// Invalid token - fall back to IP-based rate limiting
 		return ""
 	}
 
-	// Return the actual user ID from the validated token
 	return claims.UserID.String()
 }
 
-// getRealIP extracts the real client IP considering proxies
+// getRealIP extracts the real client IP with validation
 func (rl *RateLimiter) getRealIP(r *http.Request) string {
-	// Check X-Forwarded-For first (common behind proxies)
+	// Check X-Forwarded-For header first
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		ips := strings.Split(xff, ",")
 		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
+			ip := strings.TrimSpace(ips[0])
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
 		}
 	}
 
-	// Check X-Real-IP
+	// Check X-Real-IP header
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
+		if net.ParseIP(xri) != nil {
+			return xri
+		}
 	}
 
-	// Fall back to RemoteAddr, strip port
+	// Fall back to RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -177,58 +241,124 @@ func (rl *RateLimiter) getRealIP(r *http.Request) string {
 	return host
 }
 
-// Allow checks if a request is allowed under rate limiting
-func (rl *RateLimiter) Allow(clientID string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+func (rl *RateLimiter) AllowWithRetryInfo(clientID string) (allowed bool, retryAfterSeconds int) {
+	now := time.Now() // Single source of truth for this request
 
-	now := time.Now()
-	info, exists := rl.buckets[clientID] // Check if bucket exists for this client
+	if value, exists := rl.buckets.Load(clientID); exists {
+		info := value.(*bucketInfo)
+		atomic.StoreInt64(&info.lastSeen, now.Unix())
 
-	// If bucket exists, check if it's still valid
-	if len(rl.buckets) >= rl.maxBuckets && !exists {
-		return false // Reject new clients if too many buckets
+		if info.bucket.consume(1, now) {
+			atomic.AddInt64(&rl.metrics.RequestsAllowed, 1)
+			return true, 0
+		}
+
+		// Pass the SAME timestamp to ensure consistency
+		retryAfter := rl.calculateRetryAfter(info.bucket, now)
+		atomic.AddInt64(&rl.metrics.RequestsDenied, 1)
+		return false, retryAfter
 	}
 
-	if !exists {
-		bucket := &TokenBucket{
-			tokens:     float64(rl.capacity - 1), // Start with capacity-1 (first request consumes 1)
-			capacity:   rl.capacity,
-			rate:       rl.rate,
-			lastRefill: now,
-		}
-		info = &bucketInfo{
-			bucket:   bucket,
-			lastSeen: now,
-		}
-		rl.buckets[clientID] = info
-		return true
+	// Check if we're at capacity (simple protection)
+	activeCount := atomic.LoadInt64(&rl.metrics.ActiveBuckets)
+	if activeCount >= int64(rl.config.MaxBuckets) {
+		atomic.AddInt64(&rl.metrics.RequestsDenied, 1)
+		return false, int(rl.config.MaxRetryAfter.Seconds())
 	}
 
-	info.lastSeen = now
-	return info.bucket.consume(1, now) // Consume 1 token for this request
+	// Create new bucket
+	bucket := &TokenBucket{
+		tokens:     float64(rl.config.Capacity),
+		capacity:   rl.config.Capacity,
+		rate:       rl.config.Rate,
+		lastRefill: now,
+	}
+
+	info := &bucketInfo{
+		bucket:   bucket,
+		lastSeen: now.Unix(),
+	}
+
+	// Store the bucket
+	rl.buckets.Store(clientID, info)
+
+	// Update metrics
+	atomic.AddInt64(&rl.metrics.BucketsCreated, 1)
+	atomic.AddInt64(&rl.metrics.ActiveBuckets, 1)
+
+	// Allow the first request
+	bucket.consume(1, now)
+	atomic.AddInt64(&rl.metrics.RequestsAllowed, 1)
+	return true, 0
 }
 
-// RateLimitMiddleware creates middleware that applies rate limiting
+// Allow is a simple wrapper for backward compatibility
+func (rl *RateLimiter) Allow(clientID string) bool {
+	allowed, _ := rl.AllowWithRetryInfo(clientID)
+	return allowed
+}
+
+func (rl *RateLimiter) calculateRetryAfter(bucket *TokenBucket, now time.Time) int {
+	// Use the passed timestamp, don't call getRemainingTokens with a new time
+	currentTokens := bucket.getRemainingTokensAtTime(now)
+
+	// This check can now be removed or turned into a defensive assertion
+	if currentTokens >= 1.0 {
+		// This really shouldn't happen now, but if it does, something's wrong
+		return 1 // Or log an error
+	}
+
+	tokensNeeded := 1.0 - currentTokens
+	secondsNeeded := tokensNeeded / rl.config.Rate
+	retryAfter := int(math.Ceil(secondsNeeded))
+
+	return max(1, min(retryAfter, int(rl.config.MaxRetryAfter.Seconds())))
+}
+
+func (tb *TokenBucket) getRemainingTokensAtTime(now time.Time) float64 {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	elapsed := now.Sub(tb.lastRefill).Seconds()
+	refill := elapsed * tb.rate
+	return min(tb.tokens+refill, float64(tb.capacity))
+}
+
+// GetMetrics returns current rate limiter metrics
+func (rl *RateLimiter) GetMetrics() map[string]int64 {
+	return rl.metrics.GetMetrics()
+}
+
+// RateLimitMiddleware creates HTTP middleware for rate limiting
 func RateLimitMiddleware(limiter *RateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get secure client ID
 			clientID := limiter.getClientID(r)
+			allowed, retryAfter := limiter.AllowWithRetryInfo(clientID)
 
-			// Check rate limit
-			if !limiter.Allow(clientID) {
-				w.Header().Set("Retry-After", "60")
+			if !allowed {
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
 				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%.0f", limiter.config.Rate))
+				w.Header().Set("X-RateLimit-Remaining", "0")
 				w.WriteHeader(http.StatusTooManyRequests)
 
 				resp := models.NewErrorResponse("Rate limit exceeded. Please try again later.")
-				data, _ := json.Marshal(resp) // Marshal the error response
+				data, _ := json.Marshal(resp)
 				w.Write(data)
 				return
 			}
 
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// MetricsHandler provides an HTTP endpoint for metrics
+func (rl *RateLimiter) MetricsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		metrics := rl.GetMetrics()
+		json.NewEncoder(w).Encode(metrics)
 	}
 }
