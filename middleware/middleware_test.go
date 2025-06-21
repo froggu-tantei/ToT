@@ -3,8 +3,14 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/froggu-tantei/ToT/auth"
+	"github.com/froggu-tantei/ToT/db/database"
+	"github.com/google/uuid"
 )
 
 func TestCorsMiddleware(t *testing.T) {
@@ -30,22 +36,26 @@ func TestCorsMiddleware(t *testing.T) {
 		t.Log("Note: CORS headers may not be visible in test environment")
 	}
 }
-
 func TestRateLimiterBasic(t *testing.T) {
 	limiter := NewRateLimiter(1.0, 2) // 1 token/second, capacity 2
+	defer limiter.Close()             // Clean up
+
+	// Create test request
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
 
 	// First request should pass
-	if !limiter.Allow("test-client") {
+	if !limiter.Allow(limiter.getClientID(req)) {
 		t.Error("First request should be allowed")
 	}
 
 	// Second request should pass (capacity 2)
-	if !limiter.Allow("test-client") {
+	if !limiter.Allow(limiter.getClientID(req)) {
 		t.Error("Second request should be allowed")
 	}
 
 	// Third request should fail (no tokens left)
-	if limiter.Allow("test-client") {
+	if limiter.Allow(limiter.getClientID(req)) {
 		t.Error("Third request should be blocked")
 	}
 
@@ -53,7 +63,67 @@ func TestRateLimiterBasic(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 
 	// Should work again after refill
-	if !limiter.Allow("test-client") {
+	if !limiter.Allow(limiter.getClientID(req)) {
 		t.Error("Request after refill should be allowed")
+	}
+}
+
+func TestRateLimiterWithAuth(t *testing.T) {
+	// Setup JWT environment for testing
+	os.Setenv("JWT_SECRET", "test_secret_key")
+	defer os.Unsetenv("JWT_SECRET")
+
+	limiter := NewRateLimiter(1.0, 2)
+	defer limiter.Close()
+
+	// Create a real JWT token for testing
+	testUser := database.User{
+		ID:       uuid.New(),
+		Username: "testuser",
+		Email:    "test@example.com",
+	}
+
+	validToken, err := auth.GenerateToken(testUser)
+	if err != nil {
+		t.Fatalf("Failed to generate test token: %v", err)
+	}
+
+	// Test with valid Authorization header
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+validToken)
+	req.RemoteAddr = "192.168.1.100:12345"
+
+	clientID := limiter.getClientID(req)
+
+	// Should use token-based client ID for valid tokens
+	if !strings.HasPrefix(clientID, "token:") {
+		t.Errorf("Should use token-based client ID for valid token, got: %s", clientID)
+	}
+
+	// Basic rate limiting should still work
+	if !limiter.Allow(clientID) {
+		t.Error("First request with auth should be allowed")
+	}
+}
+
+func TestRateLimiterWithInvalidAuth(t *testing.T) {
+	limiter := NewRateLimiter(1.0, 2)
+	defer limiter.Close()
+
+	// Test with invalid Authorization header
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer invalid-token-123")
+	req.RemoteAddr = "192.168.1.100:12345"
+
+	clientID := limiter.getClientID(req)
+
+	// Should fall back to IP-based client ID for invalid tokens
+	if !strings.HasPrefix(clientID, "ip:") {
+		t.Errorf("Should use IP-based client ID for invalid token, got: %s", clientID)
+	}
+
+	// Basic rate limiting should still work
+	if !limiter.Allow(clientID) {
+		t.Error("First request with invalid auth should be allowed")
 	}
 }
