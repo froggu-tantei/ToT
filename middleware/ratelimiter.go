@@ -346,7 +346,13 @@ func RateLimitMiddleware(limiter *RateLimiter) func(http.Handler) http.Handler {
 				w.WriteHeader(http.StatusTooManyRequests)
 
 				resp := models.NewErrorResponse("Rate limit exceeded. Please try again later.")
-				data, _ := json.Marshal(resp)
+				data, err := json.Marshal(resp)
+				if err != nil {
+					w.Header().Set("Content-Type", "text/plain")
+					w.Write([]byte("Rate limit exceeded, please try again later."))
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
 				w.Write(data)
 				return
 			}
