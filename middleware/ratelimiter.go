@@ -133,23 +133,25 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// cleanupExpiredBuckets removes old buckets and updates metrics
 func (rl *RateLimiter) cleanupExpiredBuckets() {
 	cutoff := time.Now().Add(-rl.config.BucketTTL).Unix()
 	var expired int64
+	var remaining int64
 
-	rl.buckets.Range(func(key, value interface{}) bool {
+	rl.buckets.Range(func(key, value any) bool {
 		info := value.(*bucketInfo)
 		if atomic.LoadInt64(&info.lastSeen) < cutoff {
 			rl.buckets.Delete(key)
 			expired++
+		} else {
+			remaining++
 		}
 		return true
 	})
 
-	// Update metrics
+	// Update metrics atomically
 	atomic.AddInt64(&rl.metrics.BucketsExpired, expired)
-	atomic.AddInt64(&rl.metrics.ActiveBuckets, -expired)
+	atomic.StoreInt64(&rl.metrics.ActiveBuckets, remaining)
 	atomic.StoreInt64(&rl.metrics.LastCleanup, time.Now().Unix())
 }
 
